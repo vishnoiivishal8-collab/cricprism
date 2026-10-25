@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Java
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
@@ -20,37 +20,31 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.22.2'
           channel: 'stable'
 
-      - name: Prepare Clean Flutter Android Project
+      - name: Setup App Skeleton
         run: |
-          mkdir -p /tmp/cric_code
-          cp lib/main.dart /tmp/cric_code/
+          mkdir -p /tmp/cric_src
+          cp lib/main.dart /tmp/cric_src/
           rm -rf * .[^.]* || true
-          
-          # Fresh Flutter Project create karein
           flutter create --org com.cricprism --project-name cricprism .
-          cp /tmp/cric_code/main.dart lib/main.dart
-          
-          # Packages add karein
+          cp /tmp/cric_src/main.dart lib/main.dart
           flutter pub add camera flutter_tts cupertino_icons
 
-      - name: Patch Android Config
+      - name: Set Permissions & SDK
         run: |
           # minSdk 21 fix
           find android/app -name "build.gradle*" -exec sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 21/g' {} +
           find android/app -name "build.gradle*" -exec sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' {} +
           find android/app -name "build.gradle*" -exec sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' {} +
-          
-          # Camera and Audio permissions inject
+          # Camera permissions
           sed -i '/<application/i \    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <uses-permission android:name="android.permission.INTERNET"/>' android/app/src/main/AndroidManifest.xml
 
-      - name: Build Release APK
-        run: flutter build apk --release --no-tree-shake-icons
+      - name: Build APK
+        run: flutter build apk --debug
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CricPrism-Release-APK
+          name: CricPrism-App
           path: build/app/outputs/flutter-apk/*.apk
