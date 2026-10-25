@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Java 17
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
@@ -20,34 +20,36 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
+          flutter-version: '3.22.2'
           channel: 'stable'
 
-      - name: Generate Clean Android Scaffold
+      - name: Prepare Clean Flutter Android Project
         run: |
-          mkdir -p backup_lib
-          cp lib/main.dart backup_lib/
-          rm -rf android lib pubspec.yaml
-          flutter create --org com.cricprism --project-name cricprism .
-          cp backup_lib/main.dart lib/
-          rm -rf backup_lib
-
-      - name: Configure Dependencies & Permissions
-        run: |
-          flutter pub add camera flutter_tts cupertino_icons
-          # Set minSdk to 21 for camera
-          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle.kts || true
-          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle || true
-          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle.kts || true
-          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle || true
+          mkdir -p /tmp/cric_code
+          cp lib/main.dart /tmp/cric_code/
+          rm -rf * .[^.]* || true
           
-          # Add Camera and Audio permissions
+          # Fresh Flutter Project create karein
+          flutter create --org com.cricprism --project-name cricprism .
+          cp /tmp/cric_code/main.dart lib/main.dart
+          
+          # Packages add karein
+          flutter pub add camera flutter_tts cupertino_icons
+
+      - name: Patch Android Config
+        run: |
+          # minSdk 21 fix
+          find android/app -name "build.gradle*" -exec sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 21/g' {} +
+          find android/app -name "build.gradle*" -exec sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' {} +
+          find android/app -name "build.gradle*" -exec sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' {} +
+          
+          # Camera and Audio permissions inject
           sed -i '/<application/i \    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <uses-permission android:name="android.permission.INTERNET"/>' android/app/src/main/AndroidManifest.xml
 
       - name: Build Release APK
         run: flutter build apk --release --no-tree-shake-icons
 
-      - name: Upload APK
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: CricPrism-Release-APK
