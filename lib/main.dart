@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:camera/camera.dart';
@@ -17,203 +18,281 @@ Future<void> main() async {
   } catch (e) {
     debugPrint("Camera error: $e");
   }
-  runApp(const CricPrismApp());
+  runApp(const MaterialApp(
+    debugShowCheckedModeBanner: false,
+    home: CricPrismPro(),
+  ));
 }
 
-class CricPrismApp extends StatelessWidget {
-  const CricPrismApp({super.key});
+enum AppMode { match, practice }
+
+class CricPrismPro extends StatefulWidget {
+  const CricPrismPro({super.key});
   @override
-  Widget build(BuildContext context) {
-    return const MaterialApp(
-      debugShowCheckedModeBanner: false,
-      home: CricPrismDashboard(),
-    );
-  }
+  State<CricPrismPro> createState() => _CricPrismProState();
 }
 
-class CricPrismDashboard extends StatefulWidget {
-  const CricPrismDashboard({super.key});
-  @override
-  State<CricPrismDashboard> createState() => _CricPrismDashboardState();
-}
-
-class _CricPrismDashboardState extends State<CricPrismDashboard> {
-  CameraController? _cameraController;
+class _CricPrismProState extends State<CricPrismPro> {
+  CameraController? _camera;
   final FlutterTts _tts = FlutterTts();
+  AppMode currentMode = AppMode.match;
 
-  int runs = 0;
-  int wickets = 0;
+  // Match Engine Data
+  int totalRuns = 0;
+  int totalWickets = 0;
   int legalBalls = 0;
-  List<String> recentBalls = [];
-  String strikerName = "Batsman 1";
+  List<String> currentOverTimeline = [];
+
+  // Batsmen Data
+  String strikerName = "Virat";
   int strikerRuns = 0;
   int strikerBalls = 0;
-  String nonStrikerName = "Batsman 2";
+
+  String nonStrikerName = "Rohit";
   int nonStrikerRuns = 0;
   int nonStrikerBalls = 0;
-  String bowlerName = "Bowler 1";
+
+  // Bowler Data
+  String bowlerName = "Bumrah";
   int bowlerRuns = 0;
   int bowlerWkts = 0;
   int bowlerBalls = 0;
-  double lastSpeed = 132.4;
-  String lastLength = "Good Length";
-  String lastZone = "Straight";
-  double lastSixDist = 0.0;
+
+  // Analytics Metrics
+  double deliverySpeed = 138.4;
+  String deliveryLength = "Good Length";
+  String deliveryLine = "Off-Stump";
+  double sixDistance = 0.0;
+  bool isBallActive = false;
   bool showSixBanner = false;
+
+  // Visual Hawk-Eye Points
+  List<Offset> trajectory = [];
 
   @override
   void initState() {
     super.initState();
-    _initCamera();
     _initTTS();
+    _initCamera();
+  }
+
+  Future<void> _initTTS() async {
+    await _tts.setLanguage("en-US");
+    await _tts.setPitch(1.0);
+    await _tts.setSpeechRate(0.85);
+    await _tts.setVolume(1.0);
+    _speak("CricPrism Match and Practice Engine ready");
   }
 
   Future<void> _initCamera() async {
     if (cameras.isNotEmpty) {
-      _cameraController = CameraController(cameras[0], ResolutionPreset.high, enableAudio: false);
-      await _cameraController!.initialize();
+      _camera = CameraController(cameras[0], ResolutionPreset.high, enableAudio: false);
+      await _camera!.initialize();
       if (mounted) setState(() {});
     }
   }
 
-  void _initTTS() {
-    _tts.setLanguage("en-US");
-    _tts.setSpeechRate(0.9);
-  }
-
-  void _speak(String text) async {
+  void _speak(String txt) async {
     await _tts.stop();
-    await _tts.speak(text);
+    await _tts.speak(txt);
   }
 
-  void _handleScore(String event) {
-    setState(() {
-      legalBalls++;
-      strikerBalls++;
-      bowlerBalls++;
-      recentBalls.add(event);
-
-      if (event == '6') {
-        runs += 6;
-        strikerRuns += 6;
-        bowlerRuns += 6;
-        lastSixDist = 84.0 + (legalBalls % 20) * 1.3;
-        List<String> zones = ["Deep Mid-Wicket", "Long-On", "Long-Off", "Square Leg"];
-        lastZone = zones[legalBalls % zones.length];
-        showSixBanner = true;
-        _speak("Huge Six, ${lastSixDist.toStringAsFixed(1)} meters towards$lastZone");
-        Future.delayed(const Duration(seconds: 3), () {
-          if (mounted) setState(() => showSixBanner = false);
-        });
-      } else if (event == '4') {
-        runs += 4;
-        strikerRuns += 4;
-        bowlerRuns += 4;
-        lastZone = "Cover Boundary";
-        _speak("Four runs, driven through covers");
-      } else if (event == 'W') {
-        wickets++;
-        bowlerWkts++;
-        _speak("Wicket down! Bowler strikes");
-        strikerRuns = 0;
-        strikerBalls = 0;
-        strikerName = "New Batsman";
-      } else if (int.tryParse(event) != null) {
-        int r = int.parse(event);
-        runs += r;
-        strikerRuns += r;
-        bowlerRuns += r;
-        if (r % 2 != 0) _swapStrike();
-      }
-
-      if (legalBalls % 6 == 0) {
-        _swapStrike();
-      }
-    });
-  }
-
+  // Auto Strike Rotation
   void _swapStrike() {
-    final tempName = strikerName;
-    final tempR = strikerRuns;
-    final tempB = strikerBalls;
+    final tName = strikerName;
+    final tR = strikerRuns;
+    final tB = strikerBalls;
     strikerName = nonStrikerName;
     strikerRuns = nonStrikerRuns;
     strikerBalls = nonStrikerBalls;
-    nonStrikerName = tempName;
-    nonStrikerRuns = tempR;
-    nonStrikerBalls = tempB;
+    nonStrikerName = tName;
+    nonStrikerRuns = tR;
+    nonStrikerBalls = tB;
   }
 
-  void _triggerPace() {
-    List<double> speeds = [128.4, 131.2, 134.5, 122.0, 138.2];
-    List<String> lengths = ["Good Length", "Full Yorker", "Short Pitch"];
+  // Automatic Ball Process & Trajectory Calculation
+  void _processBall(String event) {
+    final rnd = Random();
+    deliverySpeed = 125.0 + rnd.nextInt(25) + rnd.nextDouble();
+    List<String> lengths = ["Yorker", "Full Length", "Good Length", "Short Pitch"];
+    deliveryLength = lengths[rnd.nextInt(lengths.length)];
+    List<String> lines = ["Outside Off", "On Stumps", "Down Leg"];
+    deliveryLine = lines[rnd.nextInt(lines.length)];
+
+    // Simulate Hawk-Eye Curve
+    trajectory.clear();
+    for (int i = 0; i < 7; i++) {
+      Future.delayed(Duration(milliseconds: i * 60), () {
+        if (!mounted) return;
+        setState(() {
+          trajectory.add(Offset(100.0 + (i * 40), 160.0 - sin(i * 0.4) * 35));
+        });
+      });
+    }
+
     setState(() {
-      lastSpeed = speeds[legalBalls % speeds.length];
-      lastLength = lengths[legalBalls % lengths.length];
+      isBallActive = true;
+      legalBalls++;
+      strikerBalls++;
+      bowlerBalls++;
+      currentOverTimeline.add(event);
+
+      if (event == "6") {
+        totalRuns += 6;
+        strikerRuns += 6;
+        bowlerRuns += 6;
+        sixDistance = 80.0 + rnd.nextInt(30) + rnd.nextDouble();
+        showSixBanner = true;
+        _speak("Massive hit! Six runs, ${sixDistance.toStringAsFixed(0)} meters at ${deliverySpeed.toStringAsFixed(0)} kph");
+        Future.delayed(const Duration(seconds: 3), () {
+          if (mounted) setState(() => showSixBanner = false);
+        });
+      } else if (event == "4") {
+        totalRuns += 4;
+        strikerRuns += 4;
+        bowlerRuns += 4;
+        _speak("Boundary! Four runs off a $deliveryLength delivery");
+      } else if (event == "W") {
+        totalWickets++;
+        bowlerWkts++;
+        _speak("Wicket! Clean bowled at ${deliverySpeed.toStringAsFixed(0)} kph");
+        strikerRuns = 0;
+        strikerBalls = 0;
+        strikerName = "Batter ${totalWickets + 2}";
+      } else {
+        int r = int.tryParse(event) ?? 0;
+        totalRuns += r;
+        strikerRuns += r;
+        bowlerRuns += r;
+        if (r == 0) {
+          _speak("Dot ball. Speed ${deliverySpeed.toStringAsFixed(0)} kph, $deliveryLength");
+        } else {
+          _speak("$r run taken.");
+        }
+        // Auto strike change on odd runs
+        if (r % 2 != 0) {
+          _swapStrike();
+        }
+      }
+
+      // Auto strike change at over end
+      if (legalBalls % 6 == 0) {
+        _swapStrike();
+        _speak("End of over. Strike changed.");
+      }
     });
-    _speak("Delivery speed ${lastSpeed.toStringAsFixed(1)} kilometers per hour, pitched on$lastLength");
+
+    Future.delayed(const Duration(milliseconds: 700), () {
+      if (mounted) setState(() => isBallActive = false);
+    });
   }
+
+  // Math Calculations
+  double get strikeRate => strikerBalls > 0 ? (strikerRuns / strikerBalls) * 100 : 0.0;
+  double get economy => bowlerBalls > 0 ? (bowlerRuns / (bowlerBalls / 6.0)) : 0.0;
 
   @override
   void dispose() {
-    _cameraController?.dispose();
+    _camera?.dispose();
     _tts.stop();
     super.dispose();
   }
+
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
+    final sz = MediaQuery.of(context).size;
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          if (_cameraController != null && _cameraController!.value.isInitialized)
+          // 1. Camera Live Stream
+          if (_camera != null && _camera!.value.isInitialized)
             SizedBox.expand(
               child: FittedBox(
                 fit: BoxFit.cover,
                 child: SizedBox(
-                  width: _cameraController!.value.previewSize?.height ?? size.width,
-                  height: _cameraController!.value.previewSize?.width ?? size.height,
-                  child: CameraPreview(_cameraController!),
+                  width: _camera!.value.previewSize?.height ?? sz.width,
+                  height: _camera!.value.previewSize?.width ?? sz.height,
+                  child: CameraPreview(_camera!),
                 ),
               ),
             )
           else
             const Center(child: CircularProgressIndicator(color: Colors.greenAccent)),
 
+          // 2. Hawk-Eye Tracer
+          CustomPaint(size: Size.infinite, painter: PathTracer(points: trajectory)),
+
+          // 3. Stumps Alignment Target
           Center(
             child: Container(
               width: 140,
-              height: 240,
+              height: 230,
               decoration: BoxDecoration(
-                border: Border.all(color: Colors.greenAccent.withOpacity(0.4), width: 2),
+                border: Border.all(color: Colors.greenAccent.withOpacity(0.5), width: 2),
                 borderRadius: BorderRadius.circular(8),
               ),
-              alignment: Alignment.bottomCenter,
-              child: Container(
-                width: 90,
-                height: 32,
-                color: Colors.redAccent.withOpacity(0.35),
-                alignment: Alignment.center,
-                child: const Text("STUMP LINE", style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                child: Container(
+                  height: 32,
+                  color: Colors.redAccent.withOpacity(0.4),
+                  alignment: Alignment.center,
+                  child: const Text("TARGET STUMPS", style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                ),
               ),
             ),
           ),
 
+          // 4. Mode Switcher (Top Right Bar)
+          Positioned(
+            top: 10,
+            right: 80,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.black87,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Row(
+                children: [
+                  _modeTab("MATCH", AppMode.match),
+                  _modeTab("PRACTICE", AppMode.practice),
+                ],
+              ),
+            ),
+          ),
+
+          // 5. Telemetry HUD (Speed, Length, Line)
           Positioned(
             top: 12,
             left: 12,
-            child: Row(
-              children: [
-                _buildTelemetryBox("PACE", "${lastSpeed.toStringAsFixed(1)} KM/H"),
-                const SizedBox(width: 8),
-                _buildTelemetryBox("LENGTH", lastLength),
-                const SizedBox(width: 8),
-                _buildTelemetryBox("ZONE", lastZone),
-              ],
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xE60A1128),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.greenAccent.withOpacity(0.6)),
+              ),
+              child: Row(
+                children: [
+                  _hudItem("SPEED", "${deliverySpeed.toStringAsFixed(1)} KM/H", Colors.greenAccent),
+                  const SizedBox(width: 12),
+                  _hudItem("LENGTH", deliveryLength, Colors.amberAccent),
+                  const SizedBox(width: 12),
+                  _hudItem("LINE", deliveryLine, Colors.white),
+                  if (currentMode == AppMode.match) ...[
+                    const SizedBox(width: 12),
+                    _hudItem("ECONOMY", economy.toStringAsFixed(2), Colors.cyanAccent),
+                    const SizedBox(width: 12),
+                    _hudItem("STRIKE RATE", strikeRate.toStringAsFixed(1), Colors.orangeAccent),
+                  ]
+                ],
+              ),
             ),
           ),
 
+          // 6. Maximum Celebration Card
           if (showSixBanner)
             Center(
               child: Container(
@@ -226,107 +305,143 @@ class _CricPrismDashboardState extends State<CricPrismDashboard> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text("💥 MAXIMUM 💥", style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: Colors.white)),
-                    Text("PROJECTED: ${lastSixDist.toStringAsFixed(1)} METERS", style: const TextStyle(fontSize: 16, color: Colors.amber, fontWeight: FontWeight.bold)),
+                    const Text("💥 6 MAXIMUM 💥", style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: Colors.white)),
+                    Text("PROJECTED: ${sixDistance.toStringAsFixed(1)} METERS", style: const TextStyle(fontSize: 16, color: Colors.amber, fontWeight: FontWeight.bold)),
                   ],
                 ),
               ),
             ),
 
+          // 7. Right Controls (Scoring & Ball Pitch Trigger)
           Positioned(
             right: 12,
-            top: 12,
+            top: 60,
             child: Column(
               children: [
-                _buildCtrlBtn("0", () => _handleScore("0")),
-                _buildCtrlBtn("1", () => _handleScore("1")),
-                _buildCtrlBtn("4", () => _handleScore("4"), color: Colors.blueAccent),
-                _buildCtrlBtn("6", () => _handleScore("6"), color: Colors.purpleAccent),
-                _buildCtrlBtn("W", () => _handleScore("W"), color: Colors.redAccent),
-                _buildCtrlBtn("⚡", _triggerPace, color: Colors.teal),
+                _ctrlBtn("0", () => _processBall("0")),
+                _ctrlBtn("1", () => _processBall("1")),
+                _ctrlBtn("4", () => _processBall("4"), color: Colors.blueAccent),
+                _ctrlBtn("6", () => _processBall("6"), color: Colors.purpleAccent),
+                _ctrlBtn("OUT", () => _processBall("W"), color: Colors.redAccent),
               ],
             ),
           ),
 
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: 52,
-            child: Container(
-              decoration: const BoxDecoration(
-                color: Color(0xFF0B132B),
-                border: Border(top: BorderSide(color: Colors.greenAccent, width: 3)),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 125,
-                    color: const Color(0xFF0284C7),
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text("RR", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Colors.white)),
-                        Text("$runs-$wickets", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.white)),
-                        Text("OVERS ${legalBalls ~/ 6}.${legalBalls % 6}", style: const TextStyle(fontSize: 10, color: Colors.white70)),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: Container(
-                      color: const Color(0xCC0F172A),
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Row(
+          // 8. Match Mode Bottom Broadcast Banner
+          if (currentMode == AppMode.match)
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              height: 52,
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Color(0xFF070F1E),
+                  border: Border(top: BorderSide(color: Colors.greenAccent, width: 2.5)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 135,
+                      color: const Color(0xFF0284C7),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _buildPlayerColumn("$strikerName *", "$strikerRuns ($strikerBalls)", isActive: true),
-                          const SizedBox(width: 20),
-                          _buildPlayerColumn(nonStrikerName, "$nonStrikerRuns ($nonStrikerBalls)"),
-                          const Spacer(),
-                          _buildPlayerColumn(bowlerName, "$bowlerWkts-$bowlerRuns (${bowlerBalls ~/ 6}.${bowlerBalls % 6})"),
+                          Text("$totalRuns - $totalWickets", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.white)),
+                          Text("OVERS ${legalBalls ~/ 6}.${legalBalls % 6}", style: const TextStyle(fontSize: 10, color: Colors.white70)),
                         ],
                       ),
                     ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    color: const Color(0xF2020617),
-                    child: Row(
-                      children: recentBalls.reversed.take(6).toList().reversed.map((b) => _buildBallCircle(b)).toList(),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Row(
+                          children: [
+                            _playerTag("$strikerName *", "$strikerRuns ($strikerBalls)", isStriker: true),
+                            const SizedBox(width: 18),
+                            _playerTag(nonStrikerName, "$nonStrikerRuns ($nonStrikerBalls)"),
+                            const Spacer(),
+                            _playerTag("Bowler: $bowlerName", "$bowlerWkts-$bowlerRuns (${bowlerBalls ~/ 6}.${bowlerBalls % 6})"),
+                          ],
+                        ),
+                      ),
                     ),
-                  )
-                ],
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      color: Colors.black45,
+                      child: Row(
+                        children: currentOverTimeline.reversed.take(6).toList().reversed.map((e) => _ballChip(e)).toList(),
+                      ),
+                    )
+                  ],
+                ),
               ),
             ),
-          ),
         ],
       ),
     );
   }
 
-  Widget _buildTelemetryBox(String title, String val) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xD90F172A),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white24),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: const TextStyle(fontSize: 9, color: Colors.white70)),
-          Text(val, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.greenAccent)),
-        ],
+  Widget _modeTab(String title, AppMode mode) {
+    bool active = currentMode == mode;
+    return GestureDetector(
+      onTap: () {
+        setState(() => currentMode = mode);
+        _speak("$title mode activated");
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: active ? Colors.greenAccent : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(title, style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: active ? Colors.black : Colors.white70)),
       ),
     );
   }
 
-  Widget _buildCtrlBtn(String label, VoidCallback onTap, {Color color = const Color(0x991E293B)}) {
+  Widget _hudItem(String label, String value, Color col) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 8, color: Colors.white54, fontWeight: FontWeight.bold)),
+        Text(value, style: TextStyle(fontSize: 12, color: col, fontWeight: FontWeight.w900)),
+      ],
+    );
+  }
+
+  Widget _playerTag(String name, String stat, {bool isStriker = false}) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(name, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isStriker ? Colors.amberAccent : Colors.white)),
+        Text(stat, style: const TextStyle(fontSize: 9, color: Colors.white70)),
+      ],
+    );
+  }
+
+  Widget _ballChip(String e) {
+    Color bg = Colors.grey[800]!;
+    if (e == '4') bg = Colors.blue;
+    if (e == '6') bg = Colors.purple;
+    if (e == 'W') bg = Colors.red;
     return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      width: 44,
+      margin: const EdgeInsets.symmetric(horizontal: 2),
+      width: 20,
+      height: 20,
+      decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
+      alignment: Alignment.center,
+      child: Text(e, style: const TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.bold)),
+    );
+  }
+
+  Widget _ctrlBtn(String label, VoidCallback tap, {Color color = const Color(0x991E293B)}) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      width: 46,
       height: 38,
       child: ElevatedButton(
         style: ElevatedButton.styleFrom(
@@ -334,35 +449,43 @@ class _CricPrismDashboardState extends State<CricPrismDashboard> {
           padding: EdgeInsets.zero,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
-        onPressed: onTap,
-        child: Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Colors.white)),
+        onPressed: tap,
+        child: Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Colors.white)),
       ),
     );
   }
+}
 
-  Widget _buildPlayerColumn(String name, String stat, {bool isActive = false}) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(name, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isActive ? Colors.amberAccent : Colors.white)),
-        Text(stat, style: const TextStyle(fontSize: 10, color: Colors.white70)),
-      ],
-    );
+class PathTracer extends CustomPainter {
+  final List<Offset> points;
+  PathTracer({required this.points});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (points.isEmpty) return;
+    final paint = Paint()
+      ..color = Colors.amberAccent
+      ..strokeWidth = 3.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    final glow = Paint()
+      ..color = Colors.amber.withOpacity(0.4)
+      ..strokeWidth = 8.0
+      ..style = PaintingStyle.stroke;
+
+    Path path = Path()..moveTo(points.first.dx, points.first.dy);
+    for (int i = 1; i < points.length; i++) {
+      path.lineTo(points[i].dx, points[i].dy);
+    }
+    canvas.drawPath(path, glow);
+    canvas.drawPath(path, paint);
+
+    for (var pt in points) {
+      canvas.drawCircle(pt, 4.0, Paint()..color = Colors.redAccent);
+    }
   }
 
-  Widget _buildBallCircle(String b) {
-    Color bg = const Color(0xFF334155);
-    if (b == '4') bg = Colors.blue;
-    if (b == '6') bg = Colors.purple;
-    if (b == 'W') bg = Colors.red;
-    return Container(
-      margin: const EdgeInsets.only(left: 4),
-      width: 22,
-      height: 22,
-      decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
-      alignment: Alignment.center,
-      child: Text(b, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white)),
-    );
-  }
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
